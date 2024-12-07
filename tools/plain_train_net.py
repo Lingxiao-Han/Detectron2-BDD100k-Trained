@@ -19,11 +19,14 @@ Compared to "train_net.py", this script supports fewer default features.
 It also includes fewer abstraction, therefore is easier to add custom logic.
 """
 
+import sys
 import logging
 import os
 from collections import OrderedDict
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import torch
 from torch.nn.parallel import DistributedDataParallel
+import numpy as np
 
 import detectron2.utils.comm as comm
 from detectron2.data import MetadataCatalog
@@ -51,6 +54,7 @@ from detectron2.modeling import build_model
 from detectron2.solver import build_lr_scheduler, build_optimizer
 from detectron2.utils.events import EventStorage
 from bdd100k_dataset import register_bdd100k
+from resize import CustomDatasetMapper
 
 logger = logging.getLogger("detectron2")
 
@@ -98,7 +102,10 @@ def get_evaluator(cfg, dataset_name, output_folder=None):
 def do_test(cfg, model):
     results = OrderedDict()
     for dataset_name in cfg.DATASETS.TEST:
-        data_loader = build_detection_test_loader(cfg, dataset_name)
+        data_loader = build_detection_train_loader(
+            cfg,
+            mapper=CustomDatasetMapper(cfg, is_train=True)  # 替换为自定义 mapper
+        )
         evaluator = get_evaluator(
             cfg, dataset_name, os.path.join(cfg.OUTPUT_DIR, "inference", dataset_name)
         )
@@ -133,7 +140,16 @@ def do_train(cfg, model, resume=False):
 
     # compared to "train_net.py", we do not support accurate timing and
     # precise BN here, because they are not trivial to implement in a small training loop
-    data_loader = build_detection_train_loader(cfg)
+    data_loader = build_detection_train_loader(
+        cfg,
+        mapper=CustomDatasetMapper(cfg, is_train=True)  # 替换为自定义 mapper
+    )
+    for data in data_loader:
+        for item in data:
+            print(f"Image shape (C, H, W): {item['image'].shape}, Original size: {item['height']}x{item['width']}")
+            print(f"Instance annotations: {item['instances'] if 'instances' in item else 'No instances'}")
+        break
+
     logger.info("Starting training from iteration {}".format(start_iter))
     with EventStorage(start_iter) as storage:
         for data, iteration in zip(data_loader, range(start_iter, max_iter)):
